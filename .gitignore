@@ -19,3 +19,6 @@ support/jsdom/
 support/node-htmlparser/
 support/node-o3-xml/
 support/requirejs/
+support/node-o3-xml-v4/lib/o3-xml/index.js
+support/node-o3-xml-v4/lib/o3-xml/o3.js
+support/node-o3-xml-v4/lib/o3-xml/o3.node
