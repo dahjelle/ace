@@ -51,6 +51,7 @@ exports.launch = function(env) {
 
     var JavaScriptMode = require("ace/mode/javascript").Mode;
     var CssMode = require("ace/mode/css").Mode;
+    var ScssMode = require("ace/mode/scss").Mode;
     var HtmlMode = require("ace/mode/html").Mode;
     var XmlMode = require("ace/mode/xml").Mode;
     var PythonMode = require("ace/mode/python").Mode;
@@ -60,11 +61,16 @@ exports.launch = function(env) {
     var RubyMode = require("ace/mode/ruby").Mode;
     var CCPPMode = require("ace/mode/c_cpp").Mode;
     var CoffeeMode = require("ace/mode/coffee").Mode;
+    var JsonMode = require("ace/mode/json").Mode;
     var PerlMode = require("ace/mode/perl").Mode;
+    var ClojureMode = require("ace/mode/clojure").Mode;
     var OcamlMode = require("ace/mode/ocaml").Mode;
     var SvgMode = require("ace/mode/svg").Mode;
     var TextileMode = require("ace/mode/textile").Mode;
     var TextMode = require("ace/mode/text").Mode;
+    var GroovyMode = require("ace/mode/groovy").Mode;
+    var ScalaMode = require("ace/mode/scala").Mode;
+
     var UndoManager = require("ace/undomanager").UndoManager;
 
     var vim = require("ace/keyboard/keybinding/vim").Vim;
@@ -78,7 +84,11 @@ exports.launch = function(env) {
       emacs: emacs,
       // This is a way to define simple keyboard remappings
       custom: new HashHandler({
-          "gotoright": "Tab"
+          "gotoright":      "Tab",
+          "indent":         "]",
+          "outdent":        "[",
+          "gotolinestart":  "^",
+          "gotolineend":    "$"
       })
     }
 
@@ -102,6 +112,10 @@ exports.launch = function(env) {
     docs.css = new EditSession(document.getElementById("csstext").innerHTML);
     docs.css.setMode(new CssMode());
     docs.css.setUndoManager(new UndoManager());
+
+    docs.scss = new EditSession(document.getElementById("scsstext").innerHTML);
+    docs.scss.setMode(new ScssMode());
+    docs.scss.setUndoManager(new UndoManager());
 
     docs.html = new EditSession(document.getElementById("htmltext").innerHTML);
     docs.html.setMode(new HtmlMode());
@@ -136,9 +150,17 @@ exports.launch = function(env) {
     docs.coffee.setMode(new CoffeeMode());
     docs.coffee.setUndoManager(new UndoManager());
 
+    docs.json = new EditSession(document.getElementById("jsontext").innerHTML);
+    docs.json.setMode(new JsonMode());
+    docs.json.setUndoManager(new UndoManager());
+
     docs.perl = new EditSession(document.getElementById("perltext").innerHTML);
     docs.perl.setMode(new PerlMode());
     docs.perl.setUndoManager(new UndoManager());
+
+    docs.clojure = new EditSession(document.getElementById("clojuretext").innerHTML);
+    docs.clojure.setMode(new ClojureMode());
+    docs.clojure.setUndoManager(new UndoManager());
 
     docs.ocaml = new EditSession(document.getElementById("ocamltext").innerHTML);
     docs.ocaml.setMode(new OcamlMode());
@@ -152,8 +174,36 @@ exports.launch = function(env) {
     docs.textile.setMode(new TextileMode());
     docs.textile.setUndoManager(new UndoManager());
 
+    docs.groovy = new EditSession(document.getElementById("groovy").innerHTML);
+    docs.groovy.setMode(new GroovyMode());
+    docs.groovy.setUndoManager(new UndoManager());
+
+    docs.scala = new EditSession(document.getElementById("scala").innerHTML);
+    docs.scala.setMode(new ScalaMode());
+    docs.scala.setUndoManager(new UndoManager());
+
+    
+    
+
+    // Add a "name" property to all docs
+    for (doc in docs) {
+        docs[doc].name = doc;
+    }
+
     var container = document.getElementById("editor");
-    env.editor = new Editor(new Renderer(container, theme));
+    var cockpitInput = document.getElementById("cockpitInput");
+
+    // Splitting.
+    var Split = require("ace/split").Split;
+    var split = new Split(container, theme, 1);
+    env.editor = split.getEditor(0);
+    split.on("focus", function(editor) {
+        env.editor = editor;
+        updateUIEditorOptions();
+    });
+    env.split = split;
+    window.env = env;
+    window.ace = env.editor;
 
     var modes = {
         text: new TextMode(),
@@ -162,6 +212,7 @@ exports.launch = function(env) {
         xml: new XmlMode(),
         html: new HtmlMode(),
         css: new CssMode(),
+        scss: new ScssMode(),
         javascript: new JavaScriptMode(),
         python: new PythonMode(),
         php: new PhpMode(),
@@ -169,28 +220,58 @@ exports.launch = function(env) {
         ruby: new RubyMode(),
         c_cpp: new CCPPMode(),
         coffee: new CoffeeMode(),
+        json: new JsonMode(),
         perl: new PerlMode(),
+        clojure: new ClojureMode(),
         ocaml: new OcamlMode(),
-        csharp: new CSharpMode()
+        csharp: new CSharpMode(),
+        groovy: new GroovyMode(),
+        scala: new ScalaMode()
     };
 
     function getMode() {
         return modes[modeEl.value];
     }
 
+    var docEl = document.getElementById("doc");
     var modeEl = document.getElementById("mode");
     var wrapModeEl = document.getElementById("soft_wrap");
+    var themeEl = document.getElementById("theme");
+    var selectStyleEl = document.getElementById("select_style");
+    var highlightActiveEl = document.getElementById("highlight_active");
+    var showHiddenEl = document.getElementById("show_hidden");
+    var showGutterEl = document.getElementById("show_gutter");
+    var showPrintMarginEl = document.getElementById("show_print_margin");
+    var highlightSelectedWordE = document.getElementById("highlight_selected_word");
+    var showHScrollEl = document.getElementById("show_hscroll");
+    var softTabEl = document.getElementById("soft_tab");
+    var behavioursEl = document.getElementById("enable_behaviours");
 
     bindDropdown("doc", function(value) {
         var doc = docs[value];
-        env.editor.setSession(doc);
+        var session = env.split.setSession(doc);
+        session.name = doc.name;
 
-        var mode = doc.getMode();
+        updateUIEditorOptions();
+
+        env.editor.focus();
+    });
+
+    function updateUIEditorOptions() {
+        var editor = env.editor;
+        var session = editor.session;
+
+        docEl.value = session.name;
+
+        var mode = session.getMode();
         if (mode instanceof JavaScriptMode) {
             modeEl.value = "javascript";
         }
         else if (mode instanceof CssMode) {
             modeEl.value = "css";
+        }
+        else if (mode instanceof ScssMode) {
+            modeEl.value = "scss";
         }
         else if (mode instanceof HtmlMode) {
             modeEl.value = "html";
@@ -216,8 +297,14 @@ exports.launch = function(env) {
         else if (mode instanceof CoffeeMode) {
             modeEl.value = "coffee";
         }
+        else if (mode instanceof JsonMode) {
+            modeEl.value = "json";
+        }
         else if (mode instanceof PerlMode) {
             modeEl.value = "perl";
+        }
+        else if (mode instanceof ClojureMode) {
+            modeEl.value = "clojure";
         }
         else if (mode instanceof OcamlMode) {
             modeEl.value = "ocaml";
@@ -231,17 +318,33 @@ exports.launch = function(env) {
         else if (mode instanceof TextileMode) {
             modeEl.value = "textile";
         }
+        else if (mode instanceof GroovyMode) {
+            modeEl.value = "groovy";
+        }
+        else if (mode instanceof ScalaMode) {
+            modeEl.value = "scala";
+        }
         else {
             modeEl.value = "text";
         }
 
-        if (!doc.getUseWrapMode()) {
+        if (!session.getUseWrapMode()) {
             wrapModeEl.value = "off";
         } else {
-            wrapModeEl.value = doc.getWrapLimitRange().min || "free";
+            wrapModeEl.value = session.getWrapLimitRange().min || "free";
         }
-        env.editor.focus();
-    });
+
+        selectStyleEl.checked = editor.getSelectionStyle() == "line"
+        themeEl.value = editor.getTheme();
+        highlightActiveEl.checked = editor.getHighlightActiveLine();
+        showHiddenEl.checked = editor.getShowInvisibles();
+        showGutterEl.checked = editor.renderer.getShowGutter();
+        showPrintMarginEl.checked = editor.renderer.getShowPrintMargin();
+        highlightSelectedWordE.checked = editor.getHighlightSelectedWord();
+        showHScrollEl.checked = editor.renderer.getHScrollBarAlwaysVisible();
+        softTabEl.checked = session.getUseSoftTabs();
+        behavioursEl.checked = editor.getBehavioursEnabled()
+    }
 
     bindDropdown("mode", function(value) {
         env.editor.getSession().setMode(modes[value] || modes.text);
@@ -256,7 +359,7 @@ exports.launch = function(env) {
     });
 
     bindDropdown("fontsize", function(value) {
-        document.getElementById("editor").style.fontSize = value;
+        env.split.setFontSize(value);
     });
 
     bindDropdown("soft_wrap", function(value) {
@@ -317,6 +420,35 @@ exports.launch = function(env) {
         env.editor.getSession().setUseSoftTabs(checked);
     });
 
+    bindCheckbox("enable_behaviours", function(checked) {
+        env.editor.setBehavioursEnabled(checked);
+    });
+
+    var secondSession = null;
+    bindDropdown("split", function(value) {
+        var sp = env.split;
+        if (value == "none") {
+            if (sp.getSplits() == 2) {
+                secondSession = sp.getEditor(1).session;
+            }
+            sp.setSplits(1);
+        } else {
+            var newEditor = (sp.getSplits() == 1);
+            if (value == "below") {
+                sp.setOriantation(sp.BELOW);
+            } else {
+                sp.setOriantation(sp.BESIDE);
+            }
+            sp.setSplits(2);
+
+            if (newEditor) {
+                var session = secondSession || sp.getEditor(0).session;
+                var newSession = sp.setSession(session, 1);
+                newSession.name = session.name;
+            }
+        }
+    });
+
     function bindCheckbox(id, callback) {
         var el = document.getElementById(id);
         var onCheck = function() {
@@ -336,21 +468,28 @@ exports.launch = function(env) {
     }
 
     function onResize() {
-        container.style.width = (document.documentElement.clientWidth) + "px";
-        container.style.height = (document.documentElement.clientHeight - 60 - 22) + "px";
-        env.editor.resize();
+        var width = (document.documentElement.clientWidth - 280);
+        container.style.width = width + "px";
+        cockpitInput.style.width = width + "px";
+        container.style.height = (document.documentElement.clientHeight - 22) + "px";
+        env.split.resize();
+//        env.editor.resize();
     };
 
     window.onresize = onResize;
     onResize();
+
+    // Call resize on the cli explizit. This is necessary for Firefox.
+    env.cli.cliView.resizer()
 
     event.addListener(container, "dragover", function(e) {
         return event.preventDefault(e);
     });
 
     event.addListener(container, "drop", function(e) {
+        var file
         try {
-            var file = e.dataTransfer.files[0];
+            file = e.dataTransfer.files[0];
         } catch(e) {
             return event.stopEvent();
         }
@@ -369,12 +508,14 @@ exports.launch = function(env) {
                     mode = "html";
                 } else if (/^.*\.css$/i.test(file.name)) {
                     mode = "css";
+                } else if (/^.*\.scss$/i.test(file.name)) {
+                    mode = "scss";
                 } else if (/^.*\.py$/i.test(file.name)) {
                     mode = "python";
                 } else if (/^.*\.php$/i.test(file.name)) {
                     mode = "php";
-	              } else if (/^.*\.cs$/i.test(file.name)) {
-	                  mode = "csharp";
+                } else if (/^.*\.cs$/i.test(file.name)) {
+                    mode = "csharp";
                 } else if (/^.*\.java$/i.test(file.name)) {
                     mode = "java";
                 } else if (/^.*\.rb$/i.test(file.name)) {
@@ -383,10 +524,16 @@ exports.launch = function(env) {
                     mode = "c_cpp";
                 } else if (/^.*\.coffee$/i.test(file.name)) {
                     mode = "coffee";
+                } else if (/^.*\.json$/i.test(file.name)) {
+                    mode = "json";
                 } else if (/^.*\.(pl|pm)$/i.test(file.name)) {
                     mode = "perl";
                 } else if (/^.*\.(ml|mli)$/i.test(file.name)) {
                     mode = "ocaml";
+                } else if (/^.*\.(groovy)$/i.test(file.name)) {
+                    mode = "groovy";
+                } else if (/^.*\.(scala)$/i.test(file.name)) {
+                    mode = "scala";
                 }
 
                 env.editor.onTextInput(reader.result);
@@ -471,28 +618,88 @@ exports.launch = function(env) {
             mac: "Alt-L",
             sender: "editor"
         },
-        exec: function() {
-            var session = env.editor.session,
-                range = env.editor.selection.getRange(),
-                placeHolder = session.getTextRange(range).substring(0, 3) + "...";
-
-            session.addFold(placeHolder, range);
+        exec: function(env) {
+            toggleFold(env, false)
         }
     });
 
     canon.addCommand({
-        name: "undfold",
+        name: "unfold",
         bindKey: {
             win: "Alt-Shift-L",
             mac: "Alt-Shift-L",
             sender: "editor"
         },
-        exec: function() {
-            var session = env.editor.session,
-                range = env.editor.selection.getRange();
-            session.expandFolds(session.getFoldsInRange(range));
+        exec: function(env) {
+            toggleFold(env, true)
         }
     });
+
+    function isCommentRow(row) {
+        var session = env.editor.session;
+        var token;
+        var tokens = session.getTokens(row, row)[0].tokens;
+        var c = 0;
+        for (var i = 0; i < tokens.length; i++) {
+            token = tokens[i];
+            if (/^comment/.test(token.type)) {
+                return c;
+            } else if (!/^text/.test(token.type)) {
+                return false;
+            }
+            c += token.value.length;
+        }
+        return false;
+    };
+
+    function toggleFold(env, tryToUnfold) {
+        var session = env.editor.session;
+        var selection = env.editor.selection;
+        var range = selection.getRange();
+        var addFold;
+
+        if(range.isEmpty()) {
+            var br = session.findMatchingBracket(range.start);
+            var fold = session.getFoldAt(range.start.row, range.start.column);
+            var column;
+
+            if (fold) {
+                session.expandFold(fold);
+                selection.setSelectionRange(fold.range)
+            } else if (br) {
+                if (range.compare(br.row, br.column) == 1)
+                    range.end = br;
+                else
+                    range.start = br;
+                addFold = true;
+            } else if ((column = isCommentRow(range.start.row)) !== false) {
+                var firstCommentRow = range.start.row;
+                var lastCommentRow = range.start.row;
+                var t;
+                while ((t = isCommentRow(firstCommentRow - 1)) !== false) {
+                    firstCommentRow --;
+                    column = t;
+                }
+                while (isCommentRow(lastCommentRow + 1) !== false) {
+                    lastCommentRow ++;
+                }
+                range.start.row = firstCommentRow;
+                range.start.column = column + 2;
+                range.end.row = lastCommentRow;
+                range.end.column = session.getLine(lastCommentRow).length - 1;
+                addFold = true;
+            }
+        } else {
+            addFold = true;
+        }
+        if (addFold) {
+            var placeHolder = session.getTextRange(range);
+            if(placeHolder.length < 3)
+                return;
+            placeHolder = placeHolder.trim().substring(0, 3).replace(' ','','g') + "...";
+            session.addFold(placeHolder, range);
+        }
+    }
 };
 
 });
