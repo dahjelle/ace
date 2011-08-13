@@ -9449,20 +9449,23 @@ var Editor =function(renderer, session) {
     };
 
     this.getCopyText = function() {
-        if (!this.selection.isEmpty()) {
-            return this.session.getTextRange(this.getSelectionRange());
-        }
-        else {
-            return "";
-        }
+        var text = "";
+        if (!this.selection.isEmpty())
+            text = this.session.getTextRange(this.getSelectionRange());
+        
+        this._emit("copy", text);
+        return text;
     };
 
     this.onCut = function() {
         if (this.$readOnly)
             return;
 
+        var range = this.getSelectionRange();
+        this._emit("cut", range);
+
         if (!this.selection.isEmpty()) {
-            this.session.remove(this.getSelectionRange())
+            this.session.remove(range)
             this.clearSelection();
         }
     };
@@ -9565,6 +9568,9 @@ var Editor =function(renderer, session) {
     };
 
     this.onTextInput = function(text, notPasted) {
+        if (!notPasted)
+            this._emit("paste", text);
+            
         // In case the text was not pasted and we got only one character, then
         // handel it as a command key stroke.
         if (notPasted && text.length == 1) {
@@ -9870,7 +9876,7 @@ var Editor =function(renderer, session) {
             var range = new Range(rows.first, 0, rows.last+1, 0)
         else
             var range = new Range(
-                rows.first-1, this.session.getLine(rows.first).length,
+                rows.first-1, this.session.getLine(rows.first-1).length,
                 rows.last, this.session.getLine(rows.last).length
             );
         this.session.remove(range);
@@ -17683,7 +17689,7 @@ var Text = function(parentEl) {
 
             var html = [];
             var tokens = this.session.getTokens(i, i);
-            this.$renderLine(html, i, tokens[0].tokens, true);
+            this.$renderLine(html, i, tokens[0].tokens, !this.$useLineGroups());
             lineElement = dom.setInnerHtml(lineElement, html.join(""));
 
             i = this.session.getRowFoldEnd(i);
@@ -17752,9 +17758,14 @@ var Text = function(parentEl) {
 
             // don't use setInnerHtml since we are working with an empty DIV
             container.innerHTML = html.join("");
-            var lines = container.childNodes
-            while(lines.length)
-                fragment.appendChild(lines[0]);
+            if (this.$useLineGroups()) {
+                container.className = 'ace_line_group';
+                fragment.appendChild(container);
+            } else {
+                var lines = container.childNodes
+                while(lines.length)
+                    fragment.appendChild(lines[0]);
+            }
 
             row++;
         }
@@ -17781,6 +17792,9 @@ var Text = function(parentEl) {
             if(row > lastRow)
                 break;
 
+            if (this.$useLineGroups())
+                html.push("<div class='ace_line_group'>")
+
             // Get the tokens per line as there might be some lines in between
             // beeing folded.
             // OPTIMIZE: If there is a long block of unfolded lines, just make
@@ -17788,6 +17802,9 @@ var Text = function(parentEl) {
             var tokens = this.session.getTokens(row, row);
             if (tokens.length == 1)
                 this.$renderLine(html, row, tokens[0].tokens, false);
+
+            if (this.$useLineGroups())
+                html.push("</div>"); // end the line group
 
             row++;
         }
@@ -17997,6 +18014,15 @@ var Text = function(parentEl) {
         // TODO: Build a fake splits array!
         var splits = this.session.$useWrapMode?this.session.$wrapData[row]:null;
         this.$renderLineCore(stringBuilder, row, renderTokens, splits, onlyContents);
+    };
+    
+    this.$useLineGroups = function() {
+        // For the updateLines function to work correctly, it's important that the
+        // child nodes of this.element correspond on a 1-to-1 basis to rows in the 
+        // document (as distinct from lines on the screen). For sessions that are
+        // wrapped, this means we need to add a layer to the node hierarchy (tagged
+        // with the class name ace_line_group).
+        return this.session.getUseWrapMode();
     };
 
     this.destroy = function() {
@@ -18532,6 +18558,10 @@ define('ace/theme/textmate', ['require', 'exports', 'module' , 'pilot/dom'], fun
 .ace-tm .ace_marker-layer .ace_selected_word {\
   background: rgb(250, 250, 255);\
   border: 1px solid rgb(200, 200, 250);\
+}\
+\
+.ace-tm .ace_meta.ace_tag {\
+  color:rgb(28, 2, 255);\
 }\
 \
 .ace-tm .ace_string.ace_regex {\
@@ -20498,7 +20528,6 @@ var HtmlHighlightRules = function() {
 
     // regexp must not have capturing parentheses
     // regexps are ordered -> the first match is used
-
     function string(state) {
         return [
             {
@@ -20532,6 +20561,36 @@ var HtmlHighlightRules = function() {
             regex : '.+'
         }]
     }
+    
+    function tag(states, name, nextState) {
+        states[name] = [{
+            token : "text",
+            regex : "\\s+"
+        }, {
+            token : "meta.tag",
+            regex : "[-_a-zA-Z0-9:]+",
+            next : name + "-attribute-list" 
+        }, {
+            token: "empty",
+            regex: "",
+            next : name + "-attribute-list"
+        }];
+
+        states[name + "-attribute-list"] = [{
+            token : "text",
+            regex : ">",
+            next : nextState
+        }, {
+            token : "entity.other.attribute-name",
+            regex : "[-_a-zA-Z0-9:]+"
+        }, {
+            token : "constant.numeric", // float
+            regex : "[+-]?\\d+(?:(?:\\.\\d*)?(?:[eE][+-]?\\d+)?)?\\b"
+        }, {
+            token : "text",
+            regex : "\\s+"
+        }].concat(string("attribute-list"));
+    };
 
     this.$rules = {
         start : [ {
@@ -20567,42 +20626,6 @@ var HtmlHighlightRules = function() {
             regex : "[^<]+"
         } ],
 
-        script : [ {
-            token : "text",
-            regex : ">",
-            next : "js-start"
-        }, {
-            token : "keyword",
-            regex : "[-_a-zA-Z0-9:]+"
-        }, {
-            token : "text",
-            regex : "\\s+"
-        }].concat(string("script")),
-
-        css : [ {
-            token : "text",
-            regex : ">",
-            next : "css-start"
-        }, {
-            token : "keyword",
-            regex : "[-_a-zA-Z0-9:]+"
-        }, {
-            token : "text",
-            regex : "\\s+"
-        }].concat(string("style")),
-
-        tag : [ {
-            token : "text",
-            regex : ">",
-            next : "start"
-        }, {
-            token : "keyword",
-            regex : "[-_a-zA-Z0-9:]+"
-        }, {
-            token : "text",
-            regex : "\\s+"
-        }].concat(string("tag")),
-        
         "style-qstring": multiLineString("'", "style"),
         "style-qqstring": multiLineString('"', "style"),
         "script-qstring": multiLineString("'", "script"),
@@ -20634,6 +20657,10 @@ var HtmlHighlightRules = function() {
             regex : ".+"
         } ]
     };
+    
+    tag(this.$rules, "tag", "start");
+    tag(this.$rules, "css", "css-start");
+    tag(this.$rules, "script", "js-start");
     
     this.embedRules(JavaScriptHighlightRules, "js-", [{
         token: "comment",
@@ -28846,6 +28873,23 @@ define("text!tool/Theme.tmpl.css", [], ".%cssClass% .ace_editor {" +
   ".%cssClass% .ace_xml_pe {" +
   "  %xml_pe%" +
   "}" +
+  "" +
+  ".%cssClass% .ace_meta {" +
+  "  %meta%" +
+  "}" +
+  "" +
+  ".%cssClass% .ace_meta.ace_tag {" +
+  "  %meta.tag%" +
+  "}" +
+  "" +
+  ".%cssClass% .ace_meta.ace_tag.ace_input {" +
+  "  %ace.meta.tag.input%" +
+  "}" +
+  "" +
+  ".%cssClass% .ace_entity.ace_other.ace_attribute-name {" +
+  "  %entity.other.attribute-name%" +
+  "}" +
+  "" +
   "" +
   ".%cssClass% .ace_collab.ace_user1 {" +
   "  %collab.user1%   " +
